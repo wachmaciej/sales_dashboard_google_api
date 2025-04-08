@@ -79,11 +79,11 @@ def load_data_from_gsheet():
 
     except FileNotFoundError:
         # This specifically catches the error if secrets.toml doesn't exist
-        st.info("No Streamlit secrets file found. Trying local key file...")
+        #st.info("No Streamlit secrets file found. Trying local key file...")
         pass # Proceed to local file check below
     except Exception as e_secrets:
         # Catch other potential errors during secrets processing
-        st.warning(f"Error processing Streamlit secrets: {e_secrets}. Trying local key file.")
+        #st.warning(f"Error processing Streamlit secrets: {e_secrets}. Trying local key file.")
         pass # Proceed to local file check below
 
 
@@ -92,7 +92,7 @@ def load_data_from_gsheet():
         if os.path.exists(LOCAL_KEY_PATH):
             try:
                  creds = Credentials.from_service_account_file(LOCAL_KEY_PATH, scopes=SCOPES)
-                 st.info(f"Using credentials from local file: '{LOCAL_KEY_PATH}'.") # Feedback
+                 #st.info(f"Using credentials from local file: '{LOCAL_KEY_PATH}'.") # Feedback
             except Exception as e_local:
                  # Handle errors loading from the local file specifically
                  st.error(f"Error loading credentials from local file '{LOCAL_KEY_PATH}': {e_local}")
@@ -122,7 +122,7 @@ def load_data_from_gsheet():
              st.error(f"Error: Worksheet '{WORKSHEET_NAME}' not found in the spreadsheet '{GOOGLE_SHEET_NAME}'. Please check the worksheet name (tab name).")
              st.stop()
 
-        st.success(f"Connected to Google Sheet: '{GOOGLE_SHEET_NAME}', Worksheet: '{WORKSHEET_NAME}'")
+        #st.success(f"Connected to Google Sheet: '{GOOGLE_SHEET_NAME}', Worksheet: '{WORKSHEET_NAME}'")
 
         # Read Data into Pandas DataFrame
         data = worksheet.get_all_values()
@@ -132,7 +132,7 @@ def load_data_from_gsheet():
 
         headers = data.pop(0)
         df = pd.DataFrame(data, columns=headers)
-        st.info(f"Read {len(df)} rows from Google Sheet (before type conversion).")
+        #st.info(f"Read {len(df)} rows from Google Sheet (before type conversion).")
 
         # --- Data Type Conversion section (as you edited it previously) ---
         # <<< Ensure your edited numeric_cols and date_cols lists are here >>>
@@ -163,13 +163,13 @@ def load_data_from_gsheet():
             # else: st.warning(f"Date column '{col}' specified for conversion not found.")
 
         df = df.replace('', None)
-        st.success("Data successfully loaded and initial types converted from Google Sheet.")
+        #st.success("Data successfully loaded and initial types converted from Google Sheet.")
         return df
 
     # Catch specific gspread/auth errors or general exceptions during sheet access/reading
     except gspread.exceptions.APIError as e_api:
          st.error(f"Google Sheets API Error: {e_api}")
-         st.info("This might be due to insufficient permissions for the service account on the Sheet (needs 'Viewer') or API not enabled correctly.")
+         #st.info("This might be due to insufficient permissions for the service account on the Sheet (needs 'Viewer') or API not enabled correctly.")
          st.stop()
     except Exception as e:
         st.error(f"An unexpected error occurred while accessing Google Sheets after authentication: {e}")
@@ -298,7 +298,7 @@ def format_currency_int(value):
 def preprocess_data(data):
     """Preprocesses the loaded data: converts types, calculates custom weeks/quarters."""
     df = data.copy() # Work on a copy to avoid modifying cached data
-    st.info("Starting data preprocessing...")
+    #st.info("Starting data preprocessing...")
 
     # --- Initial Data Validation ---
     # Check for essential columns needed *before* processing
@@ -368,7 +368,7 @@ def preprocess_data(data):
         st.error("No data remaining after full preprocessing.")
         st.stop()
 
-    st.success(f"Preprocessing complete. {len(df)} rows ready for analysis.")
+    #st.success(f"Preprocessing complete. {len(df)} rows ready for analysis.")
     return df
 
 
