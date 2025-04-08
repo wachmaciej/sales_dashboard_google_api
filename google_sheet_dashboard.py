@@ -377,8 +377,9 @@ def preprocess_data(data):
 
 def create_yoy_trends_chart(data, selected_years, selected_quarters,
                             selected_channels=None, selected_listings=None,
-                            selected_products=None, time_grouping="Week"):
-    """Creates the YOY Trends line chart."""
+                            selected_products=None, time_grouping="Week",
+                            week_range=None):
+    """Creates the YOY Trends line chart, incorporating week range filter.""" # Docstring updated slightly
     filtered = data.copy()
     # Apply filters
     if selected_years:
@@ -387,9 +388,9 @@ def create_yoy_trends_chart(data, selected_years, selected_quarters,
     if selected_quarters:
         filtered = filtered[filtered["Quarter"].isin(selected_quarters)]
     if selected_channels and len(selected_channels) > 0:
-         if "Sales Channel" in filtered.columns:
+        if "Sales Channel" in filtered.columns:
             filtered = filtered[filtered["Sales Channel"].isin(selected_channels)]
-         else: st.warning("Column 'Sales Channel' not found for filtering.")
+        else: st.warning("Column 'Sales Channel' not found for filtering.")
     if selected_listings and len(selected_listings) > 0:
         if "Listing" in filtered.columns:
             filtered = filtered[filtered["Listing"].isin(selected_listings)]
@@ -399,24 +400,50 @@ def create_yoy_trends_chart(data, selected_years, selected_quarters,
             filtered = filtered[filtered["Product"].isin(selected_products)]
         else: st.warning("Column 'Product' not found for filtering.")
 
+    # <<<=== START OF INSERTED WEEK FILTERING CODE ===>>>
+    if week_range:
+        start_week, end_week = week_range
+        # Ensure 'Week' column exists and is numeric before filtering
+        if "Week" in filtered.columns:
+            # Ensure 'Week' is numeric for comparison, coerce errors, drop NA
+            filtered["Week"] = pd.to_numeric(filtered["Week"], errors='coerce')
+            filtered.dropna(subset=["Week"], inplace=True)
+            if not filtered.empty: # Proceed only if rows remain after dropna
+               filtered["Week"] = filtered["Week"].astype(int) # Convert to int after cleaning
+               filtered = filtered[(filtered["Week"] >= start_week) & (filtered["Week"] <= end_week)]
+        else:
+            st.warning("Column 'Week' not found for week range filtering in YOY chart.")
+    # <<<=== END OF INSERTED WEEK FILTERING CODE ===>>>
+
     if filtered.empty:
         st.warning("No data available for YOY Trends chart with selected filters.")
         return go.Figure() # Return empty figure
 
     # Group data based on time_grouping
     if time_grouping == "Week":
+        # Check if 'Week' column still exists after potential drops
+        if "Week" not in filtered.columns:
+             st.error("Critical Error: 'Week' column lost during filtering for YOY chart grouping.")
+             return go.Figure()
         grouped = filtered.groupby(["Custom_Week_Year", "Week"])["Sales Value (£)"].sum().reset_index()
         x_col = "Week"
         x_axis_label = "Week"
-        grouped = grouped.sort_values(by=["Custom_Week_Year", "Week"])
+         # Ensure sorting columns exist
+        if "Custom_Week_Year" in grouped.columns and "Week" in grouped.columns:
+             grouped = grouped.sort_values(by=["Custom_Week_Year", "Week"])
         title = "Weekly Revenue Trends by Custom Week Year"
     else: # Assume Quarter
+        if "Quarter" not in filtered.columns:
+             st.error("Critical Error: 'Quarter' column lost during filtering for YOY chart grouping.")
+             return go.Figure()
         grouped = filtered.groupby(["Custom_Week_Year", "Quarter"])["Sales Value (£)"].sum().reset_index()
         x_col = "Quarter"
         x_axis_label = "Quarter"
         quarter_order = ["Q1", "Q2", "Q3", "Q4"]
         grouped["Quarter"] = pd.Categorical(grouped["Quarter"], categories=quarter_order, ordered=True)
-        grouped = grouped.sort_values(by=["Custom_Week_Year", "Quarter"])
+        # Ensure sorting columns exist
+        if "Custom_Week_Year" in grouped.columns and "Quarter" in grouped.columns:
+            grouped = grouped.sort_values(by=["Custom_Week_Year", "Quarter"])
         title = "Quarterly Revenue Trends by Custom Week Year"
 
     if grouped.empty:
@@ -428,15 +455,28 @@ def create_yoy_trends_chart(data, selected_years, selected_quarters,
                   title=title,
                   labels={"Sales Value (£)": "Revenue (£)", x_col: x_axis_label, "Custom_Week_Year": "Year"},
                   custom_data=["RevenueK"])
-    fig.update_traces(hovertemplate=f"{x_axis_label}: %{{x}}<br>Revenue: %{{customdata[0]:.1f}}K<extra></extra>") # Added <extra></extra> to remove trace info
+    fig.update_traces(hovertemplate=f"{x_axis_label}: %{{x}}<br>Revenue: %{{customdata[0]:.1f}}K<extra></extra>")
 
-    # Adjust x-axis range for weekly view
+    # <<<=== START OF MODIFIED X-AXIS RANGE ADJUSTMENT ===>>>
+    # Adjust x-axis range for weekly view, respecting the slider range
     if time_grouping == "Week":
-        min_week = 0.8
-        # Use pd.Series.max() which handles potential empty series after filtering/grouping
-        max_week = grouped["Week"].max() if not grouped["Week"].empty else 52
-        if pd.isna(max_week): max_week = 52 # Handle case where max week is NaN
-        fig.update_xaxes(range=[min_week, max_week + 0.2], dtick=5) # Add padding and set ticks
+        # Determine plot range based on slider if available, else use data range
+        if not grouped.empty and "Week" in grouped.columns:
+            min_week_data = grouped["Week"].min()
+            max_week_data = grouped["Week"].max()
+            if pd.isna(min_week_data): min_week_data = 1
+            if pd.isna(max_week_data): max_week_data = 52
+        else: # Fallback if grouped is empty or Week column missing
+            min_week_data = 1
+            max_week_data = 52
+
+        # Use slider range if provided for consistent axis bounds
+        min_week_plot = week_range[0] if week_range else min_week_data
+        max_week_plot = week_range[1] if week_range else max_week_data
+
+        # Ensure range doesn't start below 0.8 for visual clarity
+        fig.update_xaxes(range=[max(0.8, min_week_plot - 0.2), max_week_plot + 0.2], dtick=5)
+    # <<<=== END OF MODIFIED X-AXIS RANGE ADJUSTMENT ===>>>
 
     fig.update_yaxes(rangemode="tozero")
     fig.update_layout(margin=dict(t=50, b=50), legend_title_text='Year')
@@ -988,30 +1028,31 @@ with tabs[0]:
 
 
 # -----------------------------------------
-# Tab 2: YOY Trends (Your Original Code)
+# Tab 2: YOY Trends (UPDATED)
 # -----------------------------------------
 with tabs[1]:
     st.markdown("### YOY Weekly Revenue Trends")
     # --- Filters ---
-    with st.expander("Chart Filters", expanded=False):
-        col1, col2, col3, col4, col5 = st.columns(5)
+    with st.expander("Chart Filters", expanded=True):
+        # Using 6 columns for filters including the week slider
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+
         with col1:
             yoy_years = st.multiselect("Year(s)", options=available_custom_years, default=yoy_default_years, key="yoy_years")
         with col2:
             quarter_options = ["All Quarters", "Q1", "Q2", "Q3", "Q4", "Custom..."]
             quarter_selection = st.selectbox("Quarter(s)", options=quarter_options, index=0, key="quarter_dropdown_yoy")
+            # Determine selected quarters based on dropdown
             if quarter_selection == "All Quarters":
                 selected_quarters = ["Q1", "Q2", "Q3", "Q4"]
             elif quarter_selection == "Custom...":
-                # Ensure Quarter column exists before accessing unique values
                 if "Quarter" in df.columns:
-                     quarter_opts = sorted(df["Quarter"].dropna().unique())
+                    quarter_opts = sorted(df["Quarter"].dropna().unique())
                 else: quarter_opts = ["Q1", "Q2", "Q3", "Q4"] # Fallback
                 selected_quarters = st.multiselect("Select quarters", options=quarter_opts, default=quarter_opts, key="custom_quarters_yoy")
             else:
                 selected_quarters = [quarter_selection]
         with col3:
-            # Check if 'Sales Channel' column exists before creating filter
             if "Sales Channel" in df.columns:
                 channel_options = sorted(df["Sales Channel"].dropna().unique())
                 selected_channels = st.multiselect("Channel(s)", options=channel_options, default=[], key="yoy_channels")
@@ -1019,37 +1060,59 @@ with tabs[1]:
                 selected_channels = []
                 st.caption("Sales Channel filter unavailable (column missing)")
         with col4:
-             # Check if 'Listing' column exists
-             if "Listing" in df.columns:
+            if "Listing" in df.columns:
                 listing_options = sorted(df["Listing"].dropna().unique())
                 selected_listings = st.multiselect("Listing(s)", options=listing_options, default=[], key="yoy_listings")
-             else:
+            else:
                 selected_listings = []
                 st.caption("Listing filter unavailable (column missing)")
         with col5:
-             # Check if 'Product' column exists
-             if "Product" in df.columns:
-                 # Filter product options based on selected listing(s) if any
+            if "Product" in df.columns:
+                # Filter product options based on selected listing(s) if any
                 if selected_listings:
                     product_options = sorted(df[df["Listing"].isin(selected_listings)]["Product"].dropna().unique())
                 else:
                     product_options = sorted(df["Product"].dropna().unique())
                 selected_products = st.multiselect("Product(s)", options=product_options, default=[], key="yoy_products")
-             else:
-                 selected_products = []
-                 st.caption("Product filter unavailable (column missing)")
+            else:
+                selected_products = []
+                st.caption("Product filter unavailable (column missing)")
+
+        # Slider placed in the 6th column
+        with col6:
+            week_range_yoy = st.slider(
+                "Select Week Range",
+                min_value=1,
+                max_value=53, # Assuming max 53 weeks possible
+                value=(1, 53), # Default to full year range
+                step=1,
+                key="yoy_week_range", # Unique key for this slider
+                help="Filter the YOY chart and summary table by week number."
+            )
 
         # Time grouping option (kept as 'Week' from original code)
-        time_grouping = "Week"
+        time_grouping = "Week" # This seems fixed to Week for YOY
 
     # --- Create and Display Chart ---
+    # Check if years are selected before attempting to create chart
     if not yoy_years:
         st.warning("Please select at least one year in the filters to display the YOY chart.")
     else:
-        fig_yoy = create_yoy_trends_chart(df, yoy_years, selected_quarters, selected_channels, selected_listings, selected_products, time_grouping=time_grouping)
+        # Call the updated chart function, passing the week range from the slider
+        fig_yoy = create_yoy_trends_chart(
+            df,
+            yoy_years,
+            selected_quarters,
+            selected_channels,
+            selected_listings,
+            selected_products,
+            time_grouping=time_grouping,
+            week_range=week_range_yoy # Pass the slider value here
+        )
+        # Display the chart
         st.plotly_chart(fig_yoy, use_container_width=True)
 
-    # --- Revenue Summary Table (Your Original Logic) ---
+    # --- Revenue Summary Table (UPDATED Filtering) ---
     st.markdown("### Revenue Summary")
     st.markdown("") # Add space
 
@@ -1057,201 +1120,275 @@ with tabs[1]:
     # Use the same filters as the chart
     filtered_df_summary = df.copy()
     if yoy_years:
-        filtered_df_summary = filtered_df_summary[filtered_df_summary["Custom_Week_Year"].isin(yoy_years)]
+        # Ensure comparison is done correctly (e.g., comparing Int64 with list of ints)
+        filtered_df_summary = filtered_df_summary[filtered_df_summary["Custom_Week_Year"].isin([int(y) for y in yoy_years])]
     if selected_quarters:
         filtered_df_summary = filtered_df_summary[filtered_df_summary["Quarter"].isin(selected_quarters)]
-    if selected_channels:
-         if "Sales Channel" in filtered_df_summary.columns:
+    if selected_channels: # Check if list is not empty
+        if "Sales Channel" in filtered_df_summary.columns:
             filtered_df_summary = filtered_df_summary[filtered_df_summary["Sales Channel"].isin(selected_channels)]
-    if selected_listings:
-         if "Listing" in filtered_df_summary.columns:
+    if selected_listings: # Check if list is not empty
+        if "Listing" in filtered_df_summary.columns:
             filtered_df_summary = filtered_df_summary[filtered_df_summary["Listing"].isin(selected_listings)]
-    if selected_products:
-         if "Product" in filtered_df_summary.columns:
+    if selected_products: # Check if list is not empty
+        if "Product" in filtered_df_summary.columns:
             filtered_df_summary = filtered_df_summary[filtered_df_summary["Product"].isin(selected_products)]
 
-    df_revenue = filtered_df_summary.copy()
-
-    if df_revenue.empty:
-        st.info("No data available for the selected filters to build the revenue summary table.")
-    else:
-        # Ensure required columns have correct types
-        df_revenue["Custom_Week_Year"] = pd.to_numeric(df_revenue["Custom_Week_Year"], errors='coerce').astype('Int64')
-        df_revenue["Week"] = pd.to_numeric(df_revenue["Week"], errors='coerce').astype('Int64')
-        df_revenue.dropna(subset=["Custom_Week_Year", "Week"], inplace=True) # Drop rows where conversion failed
-
-        if df_revenue.empty:
-            st.info("No valid week/year data after type conversion for summary table.")
+    # <<<=== WEEK RANGE FILTERING FOR SUMMARY TABLE (Inserted Here) ===>>>
+    if 'week_range_yoy' in locals() and week_range_yoy: # Check if slider variable exists
+        start_week, end_week = week_range_yoy
+        if "Week" in filtered_df_summary.columns:
+            # Ensure 'Week' is numeric for comparison, coerce errors, drop NA
+            filtered_df_summary["Week"] = pd.to_numeric(filtered_df_summary["Week"], errors='coerce')
+            filtered_df_summary.dropna(subset=["Week"], inplace=True)
+            if not filtered_df_summary.empty: # Proceed only if rows remain after dropna
+                filtered_df_summary["Week"] = filtered_df_summary["Week"].astype(int) # Convert to int after cleaning
+                # Apply the week range filter
+                filtered_df_summary = filtered_df_summary[(filtered_df_summary["Week"] >= start_week) & (filtered_df_summary["Week"] <= end_week)]
         else:
-            filtered_current_year = df_revenue["Custom_Week_Year"].max()
-            df_revenue_current = df_revenue[df_revenue["Custom_Week_Year"] == filtered_current_year].copy()
+            st.warning("Column 'Week' not found for week range filtering in Revenue Summary.")
+    # <<<=== END OF WEEK RANGE FILTERING ===>>>
 
-            # Ensure week start/end calculation columns exist or can be derived
-            if "Custom_Week_Start" not in df_revenue_current.columns or "Custom_Week_End" not in df_revenue_current.columns:
-                 # Attempt to derive if missing, otherwise skip this logic
-                 try:
-                     week_results_current = df_revenue_current.apply(lambda row: get_custom_week_date_range(row['Custom_Week_Year'], row['Week']), axis=1)
-                     df_revenue_current[["Custom_Week_Start", "Custom_Week_End"]] = pd.DataFrame(week_results_current.tolist(), index=df_revenue_current.index)
-                 except Exception:
-                     st.warning("Cannot determine week start/end dates for summary table calculation.")
-                     df_revenue_current = pd.DataFrame() # Prevent further processing
+    # Use the fully filtered DataFrame for revenue calculations
+    # Note: Renamed df_revenue to filtered_df_summary throughout the rest of this section for consistency
+    if filtered_df_summary.empty:
+        st.info("No data available for the selected filters (including week range) to build the revenue summary table.")
+    else:
+        # Ensure required columns have correct types FOR CALCULATIONS
+        # Applying conversions again here can be redundant if preprocess_data was thorough,
+        # but provides safety if filtering introduced unexpected types.
+        filtered_df_summary["Custom_Week_Year"] = pd.to_numeric(filtered_df_summary["Custom_Week_Year"], errors='coerce').astype('Int64')
+        filtered_df_summary["Week"] = pd.to_numeric(filtered_df_summary["Week"], errors='coerce').astype('Int64')
+        filtered_df_summary["Sales Value (£)"] = pd.to_numeric(filtered_df_summary["Sales Value (£)"], errors='coerce') # Ensure sales value is numeric
+        filtered_df_summary.dropna(subset=["Custom_Week_Year", "Week", "Sales Value (£)"], inplace=True) # Drop rows where conversion failed or sales missing
 
-            if not df_revenue_current.empty:
-                # Determine last complete week in the current year's data
-                today = datetime.date.today()
-                # Need to handle potential NaT in Custom_Week_End after derivation/conversion
-                df_revenue_current["Custom_Week_End"] = pd.to_datetime(df_revenue_current["Custom_Week_End"], errors='coerce').dt.date
-                df_full_weeks_current = df_revenue_current.dropna(subset=["Custom_Week_End"])
-                df_full_weeks_current = df_full_weeks_current[df_full_weeks_current["Custom_Week_End"] < today].copy()
+        if filtered_df_summary.empty:
+            st.info("No valid week/year/sales data after type conversion for summary table.")
+        else:
+            # Find max year IN THE FILTERED DATA
+            filtered_years_present = sorted(filtered_df_summary["Custom_Week_Year"].unique())
+            if not filtered_years_present:
+                 st.info("No valid years found in filtered data for summary.")
+            else:
+                # Use the latest year available *in the filtered data*
+                filtered_current_year = filtered_years_present[-1]
+                df_revenue_current = filtered_df_summary[filtered_df_summary["Custom_Week_Year"] == filtered_current_year].copy()
 
-                # Get unique weeks and sort by end date to find the latest complete ones
-                unique_weeks_current = (df_full_weeks_current.groupby(["Custom_Week_Year", "Week"])
-                                        .agg(Week_End=("Custom_Week_End", "first")) # Get the end date for sorting
-                                        .reset_index()
-                                        .sort_values("Week_End"))
+                # Ensure week start/end calculation columns exist or can be derived
+                if "Custom_Week_Start" not in df_revenue_current.columns or "Custom_Week_End" not in df_revenue_current.columns:
+                    try:
+                        # Derive start/end dates - make sure get_custom_week_date_range handles potential errors
+                        week_results_current = df_revenue_current.apply(lambda row: get_custom_week_date_range(row['Custom_Week_Year'], row['Week']) if pd.notna(row['Custom_Week_Year']) and pd.notna(row['Week']) else (None, None), axis=1)
+                        # Handle potential errors where tolist() might fail if results aren't uniform
+                        if all(isinstance(item, tuple) and len(item) == 2 for item in week_results_current):
+                            df_revenue_current[["Custom_Week_Start", "Custom_Week_End"]] = pd.DataFrame(week_results_current.tolist(), index=df_revenue_current.index)
+                        else:
+                             st.warning("Could not consistently derive week start/end dates.")
+                             df_revenue_current["Custom_Week_Start"] = pd.NaT
+                             df_revenue_current["Custom_Week_End"] = pd.NaT
+                    except Exception as e:
+                        st.warning(f"Error deriving week start/end dates: {e}")
+                        # Set to NaT to handle gracefully below
+                        df_revenue_current["Custom_Week_Start"] = pd.NaT
+                        df_revenue_current["Custom_Week_End"] = pd.NaT
 
-                if unique_weeks_current.empty:
-                    st.info("Not enough complete week data in the filtered current year to build the revenue summary table.")
+
+                if df_revenue_current.empty:
+                     st.info(f"No data found for the latest year ({filtered_current_year}) after filtering.")
                 else:
-                    last_complete_week_row_current = unique_weeks_current.iloc[-1]
-                    last_week_number = int(last_complete_week_row_current["Week"]) # Ensure integer
-                    last_week_year = int(last_complete_week_row_current["Custom_Week_Year"])
+                    # Determine last complete week IN THE CURRENT YEAR'S FILTERED DATA
+                    today = datetime.date.today()
+                    # Convert end date, handling potential NaT
+                    df_revenue_current["Custom_Week_End_Date"] = pd.to_datetime(df_revenue_current["Custom_Week_End"], errors='coerce').dt.date
+                    df_full_weeks_current = df_revenue_current.dropna(subset=["Custom_Week_End_Date", "Week"]) # Ensure Week is also not NA
+                    df_full_weeks_current = df_full_weeks_current[df_full_weeks_current["Custom_Week_End_Date"] < today].copy()
 
-                    # Get the last 4 complete weeks based on the sorted unique weeks
-                    last_4_weeks_current = unique_weeks_current.tail(4)
-                    last_4_week_numbers = last_4_weeks_current["Week"].astype(int).tolist() # Ensure integer list
+                    # Get unique weeks and sort by end date to find the latest complete ones
+                    # Drop NA weeks before grouping
+                    unique_weeks_current = (df_full_weeks_current.dropna(subset=["Week", "Custom_Week_Year"])
+                                             .groupby(["Custom_Week_Year", "Week"])
+                                             .agg(Week_End=("Custom_Week_End_Date", "first")) # Use the date version
+                                             .reset_index()
+                                             .sort_values("Week_End", na_position='first')) # Sort, handle potential NaNs in Week_End
 
-                    # Determine grouping key (Listing or Product)
-                    if "Product" in df_revenue.columns and selected_listings and len(selected_listings) == 1:
-                         grouping_key = "Product"
-                    elif "Listing" in df_revenue.columns:
-                        grouping_key = "Listing"
+                    if unique_weeks_current.empty or unique_weeks_current['Week_End'].isna().all():
+                        st.info("Not enough complete week data in the filtered current year to build the revenue summary table.")
                     else:
-                        st.warning("Cannot determine grouping key (Listing/Product) for summary table.")
-                        grouping_key = None # Set to None to skip grouping
+                        # Safely get the last row which has a valid Week_End date
+                        last_complete_week_row_current = unique_weeks_current.dropna(subset=['Week_End']).iloc[-1]
+                        last_week_number = int(last_complete_week_row_current["Week"])
+                        last_week_year = int(last_complete_week_row_current["Custom_Week_Year"])
 
-                    if grouping_key:
-                        # --- Calculations for Current Year ---
-                        rev_last_4_current = (df_full_weeks_current[df_full_weeks_current["Week"].isin(last_4_week_numbers)]
-                                            .groupby(grouping_key)["Sales Value (£)"].sum()
-                                            .rename(f"Last 4 Weeks Revenue ({last_week_year})").round(0).astype(int))
+                        # Get the last 4 complete weeks based on the sorted unique weeks (ensure unique weeks before tail)
+                        last_4_weeks_current = unique_weeks_current.drop_duplicates(subset=["Week"]).dropna(subset=['Week_End']).tail(4)
+                        last_4_week_numbers = last_4_weeks_current["Week"].astype(int).tolist()
 
-                        rev_last_1_current = (df_full_weeks_current[df_full_weeks_current["Week"] == last_week_number]
-                                            .groupby(grouping_key)["Sales Value (£)"].sum()
-                                            .rename(f"Last Week Revenue ({last_week_year})").round(0).astype(int))
+                        # Determine grouping key (Listing or Product)
+                        grouping_key = None
+                        if "Product" in filtered_df_summary.columns and selected_listings and len(selected_listings) == 1:
+                            grouping_key = "Product"
+                        elif "Listing" in filtered_df_summary.columns:
+                            grouping_key = "Listing"
+                        else:
+                            st.warning("Cannot determine grouping key (Listing/Product) for summary table.")
 
-                        # --- Calculations for Previous Year (if available) ---
-                        rev_last_4_last_year = pd.Series(dtype=int, name="Last 4 Weeks Revenue (Prev Year)")
-                        rev_last_1_last_year = pd.Series(dtype=int, name="Last Week Revenue (Prev Year)")
-                        prev_year_label = "Prev Year"
+                        if grouping_key:
+                            # --- Calculations for Current Year ---
+                            # Use df_full_weeks_current which is already filtered for completed weeks of the latest year
+                            rev_last_4_current = (df_full_weeks_current[df_full_weeks_current["Week"].isin(last_4_week_numbers)]
+                                                    .groupby(grouping_key)["Sales Value (£)"].sum()
+                                                    .rename(f"Last 4 Weeks Revenue ({last_week_year})").round(0).astype(int))
 
-                        if len(yoy_years) >= 2:
-                             # Assume the second to last selected year is the previous one
-                             # Or find the year before last_week_year in the filtered data
-                             available_years_in_filtered = sorted(pd.to_numeric(df_revenue["Custom_Week_Year"], errors='coerce').dropna().unique().astype(int))
-                             year_index = available_years_in_filtered.index(last_week_year) if last_week_year in available_years_in_filtered else -1
+                            rev_last_1_current = (df_full_weeks_current[df_full_weeks_current["Week"] == last_week_number]
+                                                    .groupby(grouping_key)["Sales Value (£)"].sum()
+                                                    .rename(f"Last Week Revenue ({last_week_year})").round(0).astype(int))
 
-                             if year_index > 0:
-                                 last_year = available_years_in_filtered[year_index - 1]
-                                 prev_year_label = str(last_year) # Use actual year in label
-                                 df_revenue_last_year = df_revenue[df_revenue["Custom_Week_Year"] == last_year].copy()
+                            # --- Calculations for Previous Year (if available in filtered data) ---
+                            rev_last_4_last_year = pd.Series(dtype='Int64', name="Last 4 Weeks Revenue (Prev Year)") # Use Int64 for consistency
+                            rev_last_1_last_year = pd.Series(dtype='Int64', name="Last Week Revenue (Prev Year)")
+                            prev_year_label = "Prev Year"
+                            last_year = None # Initialize last_year
 
-                                 if not df_revenue_last_year.empty:
-                                     rev_last_1_last_year = (df_revenue_last_year[df_revenue_last_year["Week"] == last_week_number]
-                                                             .groupby(grouping_key)["Sales Value (£)"].sum()
-                                                             .rename(f"Last Week Revenue ({last_year})").round(0).astype(int))
+                            # Find the previous year relative to last_week_year *within the filtered years*
+                            if last_week_year in filtered_years_present:
+                                 current_year_index = filtered_years_present.index(last_week_year)
+                                 if current_year_index > 0:
+                                     last_year = filtered_years_present[current_year_index - 1]
+                                     prev_year_label = str(last_year)
 
-                                     rev_last_4_last_year = (df_revenue_last_year[df_revenue_last_year["Week"].isin(last_4_week_numbers)]
-                                                             .groupby(grouping_key)["Sales Value (£)"].sum()
-                                                             .rename(f"Last 4 Weeks Revenue ({last_year})").round(0).astype(int))
+                            if last_year is not None:
+                                # Use the main filtered_df_summary for the previous year's data
+                                df_revenue_last_year = filtered_df_summary[filtered_df_summary["Custom_Week_Year"] == last_year].copy()
 
-                        # --- Combine Results ---
-                        # Get all unique keys (Listings/Products) from the current year filtered data
-                        all_keys_current = pd.Series(sorted(df_revenue_current[grouping_key].dropna().unique()), name=grouping_key)
-                        revenue_summary = pd.DataFrame(all_keys_current).set_index(grouping_key)
+                                if not df_revenue_last_year.empty:
+                                    # Ensure 'Week' column is Int64 for comparison with list/int
+                                    df_revenue_last_year["Week"] = pd.to_numeric(df_revenue_last_year["Week"], errors='coerce').astype('Int64')
+                                    df_revenue_last_year.dropna(subset=["Week", "Sales Value (£)"], inplace=True) # Ensure needed cols are valid
 
-                        # Join the calculated series
-                        revenue_summary = revenue_summary.join(rev_last_4_current, how="left")\
-                                                         .join(rev_last_1_current, how="left")\
-                                                         .join(rev_last_4_last_year.rename(f"Last 4 Weeks Revenue ({prev_year_label})"), how="left")\
-                                                         .join(rev_last_1_last_year.rename(f"Last Week Revenue ({prev_year_label})"), how="left")
+                                    rev_last_1_last_year = (df_revenue_last_year[df_revenue_last_year["Week"] == last_week_number]
+                                                                .groupby(grouping_key)["Sales Value (£)"].sum()
+                                                                .rename(f"Last Week Revenue ({last_year})").round(0).astype('Int64')) # Use Int64
 
-                        revenue_summary = revenue_summary.fillna(0) # Fill missing joins with 0
+                                    rev_last_4_last_year = (df_revenue_last_year[df_revenue_last_year["Week"].isin(last_4_week_numbers)]
+                                                                .groupby(grouping_key)["Sales Value (£)"].sum()
+                                                                .rename(f"Last 4 Weeks Revenue ({last_year})").round(0).astype('Int64')) # Use Int64
 
-                        # Calculate Differences and % Changes
-                        current_4wk_col = f"Last 4 Weeks Revenue ({last_week_year})"
-                        prev_4wk_col = f"Last 4 Weeks Revenue ({prev_year_label})"
-                        current_1wk_col = f"Last Week Revenue ({last_week_year})"
-                        prev_1wk_col = f"Last Week Revenue ({prev_year_label})"
+                            # --- Combine Results ---
+                            # Get all unique keys (Listings/Products) from the *current year* data used in calculations
+                            all_keys_current = pd.Series(sorted(df_revenue_current[grouping_key].dropna().unique()), name=grouping_key)
+                            revenue_summary = pd.DataFrame({grouping_key: all_keys_current}).set_index(grouping_key)
 
-                        revenue_summary["Last 4 Weeks Diff"] = revenue_summary[current_4wk_col] - revenue_summary[prev_4wk_col]
-                        revenue_summary["Last Week Diff"] = revenue_summary[current_1wk_col] - revenue_summary[prev_1wk_col]
+                            # Join the calculated series
+                            revenue_summary = revenue_summary.join(rev_last_4_current, how="left")\
+                                                            .join(rev_last_1_current, how="left")\
+                                                            .join(rev_last_4_last_year.rename(f"Last 4 Weeks Revenue ({prev_year_label})"), how="left")\
+                                                            .join(rev_last_1_last_year.rename(f"Last Week Revenue ({prev_year_label})"), how="left")
 
-                        # Calculate % change safely avoiding division by zero
-                        revenue_summary["Last 4 Weeks % Change"] = revenue_summary.apply(
-                            lambda row: (row["Last 4 Weeks Diff"] / row[prev_4wk_col] * 100) if row[prev_4wk_col] != 0 else (100.0 if row["Last 4 Weeks Diff"] > 0 else 0.0), axis=1)
-                        revenue_summary["Last Week % Change"] = revenue_summary.apply(
-                            lambda row: (row["Last Week Diff"] / row[prev_1wk_col] * 100) if row[prev_1wk_col] != 0 else (100.0 if row["Last Week Diff"] > 0 else 0.0), axis=1)
+                            # Fill missing joins with 0 and ensure integer types where possible (use Int64 to handle potential NAs from joins)
+                            revenue_summary = revenue_summary.fillna(0).astype('Int64')
+
+                            # Calculate Differences and % Changes
+                            current_4wk_col = f"Last 4 Weeks Revenue ({last_week_year})"
+                            prev_4wk_col = f"Last 4 Weeks Revenue ({prev_year_label})"
+                            current_1wk_col = f"Last Week Revenue ({last_week_year})"
+                            prev_1wk_col = f"Last Week Revenue ({prev_year_label})"
+
+                            # Ensure columns used for diff exist before calculating
+                            if current_4wk_col in revenue_summary.columns and prev_4wk_col in revenue_summary.columns:
+                                revenue_summary["Last 4 Weeks Diff"] = revenue_summary[current_4wk_col] - revenue_summary[prev_4wk_col]
+                            else: revenue_summary["Last 4 Weeks Diff"] = 0
+
+                            if current_1wk_col in revenue_summary.columns and prev_1wk_col in revenue_summary.columns:
+                                revenue_summary["Last Week Diff"] = revenue_summary[current_1wk_col] - revenue_summary[prev_1wk_col]
+                            else: revenue_summary["Last Week Diff"] = 0
 
 
-                        revenue_summary = revenue_summary.reset_index() # Make grouping key a column again
+                            # Calculate % change safely avoiding division by zero
+                            revenue_summary["Last 4 Weeks % Change"] = revenue_summary.apply(
+                                lambda row: (row["Last 4 Weeks Diff"] / row[prev_4wk_col] * 100)
+                                if prev_4wk_col in row and row[prev_4wk_col] != 0 else
+                                (100.0 if row["Last 4 Weeks Diff"] > 0 else 0.0), axis=1)
 
-                        # Define desired column order using the dynamic year labels
-                        desired_order = [grouping_key,
-                                         current_4wk_col, prev_4wk_col, "Last 4 Weeks Diff", "Last 4 Weeks % Change",
-                                         current_1wk_col, prev_1wk_col, "Last Week Diff", "Last Week % Change"]
-                        # Ensure all desired columns exist before reordering
-                        desired_order = [col for col in desired_order if col in revenue_summary.columns]
-                        revenue_summary = revenue_summary[desired_order]
+                            revenue_summary["Last Week % Change"] = revenue_summary.apply(
+                                lambda row: (row["Last Week Diff"] / row[prev_1wk_col] * 100)
+                                if prev_1wk_col in row and row[prev_1wk_col] != 0 else
+                                (100.0 if row["Last Week Diff"] > 0 else 0.0), axis=1)
 
-                        # ---- Total Summary Row Calculation ----
-                        summary_row = {col: revenue_summary[col].sum() for col in desired_order if col != grouping_key}
-                        summary_row[grouping_key] = "Total"
 
-                        total_last4_last_year = summary_row[prev_4wk_col]
-                        total_last_week_last_year = summary_row[prev_1wk_col]
+                            revenue_summary = revenue_summary.reset_index() # Make grouping key a column again
 
-                        summary_row["Last 4 Weeks % Change"] = (summary_row["Last 4 Weeks Diff"] / total_last4_last_year * 100) if total_last4_last_year != 0 else (100.0 if summary_row["Last 4 Weeks Diff"] > 0 else 0.0)
-                        summary_row["Last Week % Change"] = (summary_row["Last Week Diff"] / total_last_week_last_year * 100) if total_last_week_last_year != 0 else (100.0 if summary_row["Last Week Diff"] > 0 else 0.0)
+                            # Define desired column order using the dynamic year labels
+                            desired_order = [grouping_key,
+                                             current_4wk_col, prev_4wk_col, "Last 4 Weeks Diff", "Last 4 Weeks % Change",
+                                             current_1wk_col, prev_1wk_col, "Last Week Diff", "Last Week % Change"]
+                            # Ensure all desired columns exist before reordering
+                            desired_order = [col for col in desired_order if col in revenue_summary.columns]
+                            revenue_summary = revenue_summary[desired_order]
 
-                        total_df = pd.DataFrame([summary_row])[desired_order] # Ensure same column order
+                            # ---- Total Summary Row Calculation ----
+                            summary_row = {}
+                            for col in desired_order:
+                                if col != grouping_key and pd.api.types.is_numeric_dtype(revenue_summary[col]):
+                                     summary_row[col] = revenue_summary[col].sum()
+                                else:
+                                     summary_row[col] = '' # Handle non-numeric or grouping key
 
-                        # ---- Styling ----
-                        def color_diff(val):
-                            """Applies red/green color to negative/positive numbers."""
-                            try:
-                                val = float(val) # Ensure it's numeric for comparison
-                                if val < 0: return 'color: red'
-                                elif val > 0: return 'color: green'
-                                else: return ''
-                            except (ValueError, TypeError):
-                                return '' # Return empty style for non-numeric
+                            summary_row[grouping_key] = "Total"
 
-                        # Define formats using dynamic column names
-                        formats = {
-                            current_4wk_col: "{:,}", prev_4wk_col: "{:,}",
-                            current_1wk_col: "{:,}", prev_1wk_col: "{:,}",
-                            "Last 4 Weeks Diff": "{:,.0f}", "Last Week Diff": "{:,.0f}",
-                            "Last 4 Weeks % Change": "{:.1f}%", "Last Week % Change": "{:.1f}%"
-                        }
-                        color_cols = ["Last 4 Weeks Diff", "Last Week Diff", "Last 4 Weeks % Change", "Last Week % Change"]
+                            # Recalculate % change for total row safely
+                            total_last4_last_year = summary_row.get(prev_4wk_col, 0)
+                            total_last_week_last_year = summary_row.get(prev_1wk_col, 0)
+                            total_diff_4wk = summary_row.get("Last 4 Weeks Diff", 0)
+                            total_diff_1wk = summary_row.get("Last Week Diff", 0)
 
-                        # Apply styling to Total row
-                        styled_total = total_df.style.format(formats).applymap(color_diff, subset=color_cols)\
-                                                 .set_properties(**{'font-weight': 'bold'})
+                            summary_row["Last 4 Weeks % Change"] = (total_diff_4wk / total_last4_last_year * 100) if total_last4_last_year != 0 else (100.0 if total_diff_4wk > 0 else 0.0)
+                            summary_row["Last Week % Change"] = (total_diff_1wk / total_last_week_last_year * 100) if total_last_week_last_year != 0 else (100.0 if total_diff_1wk > 0 else 0.0)
 
-                        st.markdown("##### Total Summary")
-                        st.dataframe(styled_total, use_container_width=True, hide_index=True) # Hide index for total row
+                            total_df = pd.DataFrame([summary_row])[desired_order] # Ensure same column order
 
-                        # Apply styling to Detailed rows
-                        styled_main = revenue_summary.style.format(formats).applymap(color_diff, subset=color_cols)
+                            # ---- Styling ----
+                            def color_diff(val):
+                                """Applies red/green color to negative/positive numbers."""
+                                try:
+                                    val = float(val) # Ensure it's numeric for comparison
+                                    if val < -0.001: return 'color: red' # Use small threshold for floating point
+                                    elif val > 0.001: return 'color: green'
+                                    else: return ''
+                                except (ValueError, TypeError):
+                                    return '' # Return empty style for non-numeric
 
-                        st.markdown("##### Detailed Summary")
-                        st.dataframe(styled_main, use_container_width=True, hide_index=True) # Hide index for detail rows
-                    else:
-                         st.info("Summary table requires 'Listing' or 'Product' column and valid selections.")
+                            # Define formats using dynamic column names, check if columns exist
+                            formats = {}
+                            if current_4wk_col in revenue_summary.columns: formats[current_4wk_col] = "{:,}"
+                            if prev_4wk_col in revenue_summary.columns: formats[prev_4wk_col] = "{:,}"
+                            if current_1wk_col in revenue_summary.columns: formats[current_1wk_col] = "{:,}"
+                            if prev_1wk_col in revenue_summary.columns: formats[prev_1wk_col] = "{:,}"
+                            if "Last 4 Weeks Diff" in revenue_summary.columns: formats["Last 4 Weeks Diff"] = "{:,.0f}"
+                            if "Last Week Diff" in revenue_summary.columns: formats["Last Week Diff"] = "{:,.0f}"
+                            if "Last 4 Weeks % Change" in revenue_summary.columns: formats["Last 4 Weeks % Change"] = "{:.1f}%"
+                            if "Last Week % Change" in revenue_summary.columns: formats["Last Week % Change"] = "{:.1f}%"
 
-# --- End of Chunk 2 ---
+                            color_cols = [col for col in ["Last 4 Weeks Diff", "Last Week Diff", "Last 4 Weeks % Change", "Last Week % Change"] if col in revenue_summary.columns]
+
+                            # Apply styling to Total row
+                            styled_total = total_df.style.format(formats, na_rep='-').apply(lambda x: x.map(color_diff), subset=color_cols)\
+                                                          .set_properties(**{'font-weight': 'bold'}) \
+                                                          .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}, # Center headers
+                                                                           {'selector': 'td', 'props': [('text-align', 'right')]}]) # Right-align cells
+
+                            st.markdown("##### Total Summary")
+                            st.dataframe(styled_total, use_container_width=True, hide_index=True)
+
+                            # Apply styling to Detailed rows
+                            styled_main = revenue_summary.style.format(formats, na_rep='-').apply(lambda x: x.map(color_diff), subset=color_cols) \
+                                                          .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}, # Center headers
+                                                                           {'selector': 'td', 'props': [('text-align', 'right')]}]) # Right-align cells
+
+                            st.markdown("##### Detailed Summary")
+                            st.dataframe(styled_main, use_container_width=True, hide_index=True)
+                        else: # If grouping_key couldn't be determined
+                            st.info("Summary table requires 'Listing' or 'Product' column and valid selections.")
+# --- End of Updated Code Chunk for Tab 2 ---
 
 # Chunk 3 of 3
 
@@ -1389,12 +1526,12 @@ with tabs[3]:
         st.error("The dataset does not contain a 'Product SKU' column. SKU Trends cannot be displayed.")
     else:
         # --- Filters ---
-        with st.expander("Chart Filters", expanded=False):
+        with st.expander("Chart Filters", expanded=True):
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 sku_text = st.text_input("Enter Product SKU", value="", key="sku_input", help="Enter a SKU (or part of it) to display its weekly revenue trends.")
             with col2:
-                sku_years = st.multiselect("Select Year(s)", options=available_custom_years, default=default_current_year, key="sku_years", help="Default is the current custom week year.")
+                sku_years = st.multiselect("Select Year(s)", options=available_custom_years, default=yoy_default_years, key="sku_years", help="Default is the current custom week year.")
             with col3:
                 if "Sales Channel" in df.columns:
                      sku_channel_opts = sorted(df["Sales Channel"].dropna().unique())
@@ -1582,10 +1719,3 @@ with tabs[5]:
             display_cols = ["Date", "Sales Channel", "Listing", "Product SKU", "Product", "Sales Value (£)", "Order Quantity"] # Example order
             display_cols_existing = [col for col in display_cols if col in unrecognised_sales.columns]
             st.dataframe(unrecognised_sales[display_cols_existing], use_container_width=True, hide_index=True)
-
-
-# --- Footer ---
-st.markdown("---")
-st.write("YOY Dashboard v2.0 (Google Sheets Integration)")
-
-# --- End of Chunk 3 / End of Script ---
