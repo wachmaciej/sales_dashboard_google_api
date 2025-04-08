@@ -52,7 +52,7 @@ with col2:
 
 # --- Sidebar ---
 # Session state initialization is removed as data is loaded directly now
-st.sidebar.header("YOY Dashboard")
+#st.sidebar.header("YOY Dashboard")
 # We will add info about the connected sheet later in the main section
 
 # =============================================================================
@@ -778,8 +778,8 @@ if df is None or df.empty:
     st.stop() # Stop execution if no processed data
 
 # --- Add Sheet Info to Sidebar ---
-st.sidebar.info(f"Data loaded from:\nSheet: '{GOOGLE_SHEET_NAME}'\nWorksheet: '{WORKSHEET_NAME}'")
-st.sidebar.markdown("---") # Separator
+#st.sidebar.info(f"Data loaded from:\nSheet: '{GOOGLE_SHEET_NAME}'\nWorksheet: '{WORKSHEET_NAME}'")
+#st.sidebar.markdown("---") # Separator
 
 
 # --- Prepare Filters and Variables based on Processed Data 'df' ---
@@ -828,7 +828,7 @@ tabs = st.tabs([
 # -------------------------------
 with tabs[0]:
     st.markdown("### Key Performance Indicators")
-    with st.expander("KPI Filters", expanded=False):
+    with st.expander("KPI Filters", expanded=True):
         today = datetime.date.today()
         # Ensure week calculation columns exist
         if "Custom_Week_Year" not in df.columns or "Custom_Week" not in df.columns:
@@ -900,23 +900,39 @@ with tabs[0]:
                     revenue = revenue_summary.get(year, 0) # Get revenue for this specific year from the filtered week's data
 
                     # Calculate delta vs previous year (if applicable)
-                    delta_rev_str = "N/A" # Default delta
+                    numeric_delta_rev = None
+                    show_delta = False
+
                     if idx > 0:
                         prev_year = all_custom_years_in_df[idx - 1]
-                        # Need data for the *same week number* but *previous year*
                         prev_year_week_data = df[(df["Custom_Week_Year"] == prev_year) & (df["Custom_Week"] == selected_week)]
                         prev_rev = prev_year_week_data["Sales Value (£)"].sum() if not prev_year_week_data.empty else 0
-                        delta_rev = revenue - prev_rev
-                        # Format delta only if previous year had data for this week
-                        delta_rev_str = f"£{int(round(delta_rev)):,}" if prev_rev != 0 or revenue != 0 else "N/A"
-                    else:
-                         delta_rev_str = "" # No delta for the first year
+
+                        if prev_rev != 0 or revenue != 0:
+                           numeric_delta_rev = revenue - prev_rev
+                           show_delta = True
+
+                    # --- Prepare the delta STRING and COLOR setting ---
+                    delta_display_string = None
+                    # Use "normal" to enable default red/green, "off" otherwise
+                    delta_color_setting = "off"
+
+                    if show_delta:
+                        # Format the rounded number into the desired STRING format WITH comma
+                        delta_display_string = f"{int(round(numeric_delta_rev)):,}" # <-- FORMAT AS STRING WITH COMMA
+                        # Set color mode to normal (instructs Streamlit to use red for neg, green for pos)
+                        delta_color_setting = "normal"
+                        # Optional: Add currency symbol if needed INSIDE the string like this:
+                        # delta_display_string = f"£{int(round(numeric_delta_rev)):,}"
 
                     # Display Revenue Metric
                     st.metric(
                         label=f"Revenue {year} (Week {selected_week})",
                         value=format_currency_int(revenue) if revenue != 0 else "£0",
-                        delta=delta_rev_str if delta_rev_str else None # Avoid showing delta=0 explicitly if no comparison
+                        # Pass the FORMATTED STRING
+                        delta=delta_display_string,
+                        # Explicitly set the delta color behavior
+                        delta_color=delta_color_setting # <-- ADD THIS ARGUMENT
                     )
 
                     # Display Units and AOV if possible
