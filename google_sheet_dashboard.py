@@ -54,7 +54,7 @@ with col2_logo:
 # =============================================================================
 # Function to Load Data from Google Sheets (Corrected Error Handling)
 # =============================================================================
-@st.cache_data(ttl=600, show_spinner="Fetching data from Google Sheet...") # Cache data for 10 minutes
+@st.cache_data(ttl=18000, show_spinner="Fetching data from Google Sheet...") # Cache data for 10 minutes
 def load_data_from_gsheet():
     """Loads data from the specified Google Sheet worksheet, handling missing secrets file."""
     creds = None
