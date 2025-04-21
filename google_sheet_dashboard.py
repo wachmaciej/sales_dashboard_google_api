@@ -499,6 +499,7 @@ def create_yoy_trends_chart(data, selected_years,
 
     fig.update_yaxes(rangemode="tozero")
     fig.update_layout(margin=dict(t=50, b=50), legend_title_text='Year')
+    fig.update_layout(hovermode='x unified')
     return fig
 
 
@@ -654,6 +655,7 @@ def create_sku_line_chart(data, sku_text, selected_years, selected_channels=None
 
     fig.update_traces(hovertemplate="Week: %{x}<br>Revenue: %{customdata[0]:.1f}K<br>Units Sold: %{customdata[1]}<extra></extra>")
     fig.update_layout(
+        hovermode='x unified',
         xaxis=dict(
             tickmode="linear",
             range=[max(0.8, min_week_plot - 0.2), max_week_plot + 0.2],
@@ -805,6 +807,8 @@ def create_daily_price_chart(data, listing, selected_years, selected_quarters, s
 
     fig.update_yaxes(rangemode="tozero")
     fig.update_layout(margin=dict(t=50, b=50), legend_title_text='Year')
+
+
     return fig
 
 # =============================================================================
@@ -1545,7 +1549,8 @@ with tabs[3]:
                 if not filtered_sku_data.empty:
                     total_units = filtered_sku_data.groupby("Custom_Week_Year")["Order Quantity"].sum().reset_index()
                     if not total_units.empty:
-                        total_units_summary = total_units.pivot(index=None, columns="Custom_Week_Year", values="Order Quantity")
+                        total_units_indexed = total_units.set_index("Custom_Week_Year")
+                        total_units_summary = total_units_indexed[["Order Quantity"]].T
                         total_units_summary.index = ["Total Units Sold (All Matching SKUs)"]
                         st.markdown("##### Total Units Sold Summary")
                         st.dataframe(total_units_summary.fillna(0).astype(int).style.format("{:,}"), use_container_width=True)
